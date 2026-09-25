@@ -16,6 +16,7 @@
 
 #define LOG_TAG "ExtCamDev"
 // #define LOG_NDEBUG 0
+#include <cutils/properties.h>
 #include <log/log.h>
 
 #include "ExternalCameraDevice.h"
@@ -305,6 +306,13 @@ status_t ExternalCameraDevice::initCameraCharacteristics() {
         return ret;
     }
 
+    ret = initAutomotiveCharsKeys(&mCameraCharacteristics);
+    if (ret != OK) {
+        ALOGE("%s: init automotive characteristics key failed: errorno %d", __FUNCTION__, ret);
+        mCameraCharacteristics.clear();
+        return ret;
+    }
+
     return OK;
 }
 
@@ -316,6 +324,49 @@ status_t ExternalCameraDevice::initCameraCharacteristics() {
             return -EINVAL;                            \
         }                                              \
     } while (0)
+
+/*
+ * On a car, ro.vendor.camera.external.automotive_location (exterior_rear, exterior_front,
+ * exterior_left, exterior_right) makes the external camera an exterior system camera: it gets
+ * ANDROID_AUTOMOTIVE_LOCATION and the SYSTEM_CAMERA capability. cameraserver lets the privileged
+ * AID_AUTOMOTIVE_EVS client open such a camera before Android has finished booting (e.g. a rear
+ * view camera shown during boot), and hides it from third-party apps.
+ */
+status_t ExternalCameraDevice::initAutomotiveCharsKeys(
+        ::android::hardware::camera::common::V1_0::helper::CameraMetadata* metadata) {
+    char value[PROPERTY_VALUE_MAX];
+    property_get("ro.vendor.camera.external.automotive_location", value, "");
+    const std::string location(value);
+    uint8_t automotiveLocation;
+    if (location.empty()) {
+        return OK;
+    } else if (location == "exterior_rear") {
+        automotiveLocation = ANDROID_AUTOMOTIVE_LOCATION_EXTERIOR_REAR;
+    } else if (location == "exterior_front") {
+        automotiveLocation = ANDROID_AUTOMOTIVE_LOCATION_EXTERIOR_FRONT;
+    } else if (location == "exterior_left") {
+        automotiveLocation = ANDROID_AUTOMOTIVE_LOCATION_EXTERIOR_LEFT;
+    } else if (location == "exterior_right") {
+        automotiveLocation = ANDROID_AUTOMOTIVE_LOCATION_EXTERIOR_RIGHT;
+    } else {
+        ALOGE("%s: unknown automotive location \"%s\"", __FUNCTION__, value);
+        return BAD_VALUE;
+    }
+    UPDATE(ANDROID_AUTOMOTIVE_LOCATION, &automotiveLocation, 1);
+
+    camera_metadata_entry capsEntry = metadata->find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
+    std::vector<uint8_t> caps(capsEntry.data.u8, capsEntry.data.u8 + capsEntry.count);
+    caps.push_back(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_SYSTEM_CAMERA);
+    UPDATE(ANDROID_REQUEST_AVAILABLE_CAPABILITIES, caps.data(), caps.size());
+
+    std::vector<int32_t> keys = AVAILABLE_CHARACTERISTICS_KEYS;
+    keys.push_back(ANDROID_AUTOMOTIVE_LOCATION);
+    UPDATE(ANDROID_REQUEST_AVAILABLE_CHARACTERISTICS_KEYS, keys.data(), keys.size());
+
+    ALOGI("%s: camera %s is an exterior system camera (%s)", __FUNCTION__, mCameraId.c_str(),
+          value);
+    return OK;
+}
 
 status_t ExternalCameraDevice::initAvailableCapabilities(
         ::android::hardware::camera::common::V1_0::helper::CameraMetadata* metadata) {

@@ -87,6 +87,9 @@ class ExternalCameraDevice : public BnCameraDevice {
     // Init available capabilities keys
     virtual status_t initAvailableCapabilities(
             ::android::hardware::camera::common::V1_0::helper::CameraMetadata*);
+    // Exterior system camera on a car (ro.vendor.camera.external.automotive_location)
+    status_t initAutomotiveCharsKeys(
+            ::android::hardware::camera::common::V1_0::helper::CameraMetadata*);
     // Init non-device dependent keys
     virtual status_t initDefaultCharsKeys(
             ::android::hardware::camera::common::V1_0::helper::CameraMetadata*);
